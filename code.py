@@ -701,7 +701,7 @@ with tab2:
     
     # Auto-refresh logic
     if st.session_state.get("monitoring_active", False):
-        import time
+        from datetime import datetime, timedelta
         
         # Display status
         st.markdown(f"""
@@ -719,14 +719,41 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
         
-        # Auto-refresh using st.rerun with timer
-        placeholder = st.empty()
-        with placeholder.container():
-            if st.session_state.get("apache_live_data"):
-                render_apache_analysis(st.session_state["apache_live_data"])
+        # Display current data
+        if st.session_state.get("apache_live_data"):
+            render_apache_analysis(st.session_state["apache_live_data"])
         
-        # Schedule next refresh
-        time.sleep(refresh_interval)
+        # Check if it's time to refresh
+        if "next_refresh_time" not in st.session_state:
+            st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
+        
+        # Auto-refresh if interval has passed
+        if datetime.now() >= st.session_state["next_refresh_time"]:
+            try:
+                latest_file = st.session_state.get("latest_log_file")
+                success, local_path = tail_remote_file(
+                    st.session_state["remote_ip"],
+                    st.session_state["remote_username"],
+                    st.session_state["remote_password"],
+                    latest_file,
+                    tail_lines
+                )
+                
+                if success:
+                    answer = asyncio.run(ask_with_mcp_tools(
+                        f"Analyze apache log {local_path}", 
+                        model=actual_model.strip(),
+                        remote_config=None
+                    ))
+                    st.session_state["apache_live_data"] = answer
+                    st.session_state["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
+            except Exception as e:
+                st.error(f"Auto-refresh error: {e}")
+        
+        # Use st.empty() and rerun for continuous monitoring
+        import time
+        time.sleep(1)  # Small sleep to prevent overwhelming the system
         st.rerun()
     
     # Display results if monitoring stopped but data exists

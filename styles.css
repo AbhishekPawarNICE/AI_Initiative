@@ -1,0 +1,458 @@
+/* Hide Streamlit header and menu */
+header[data-testid="stHeader"] {
+    background-color: #0a0e27 !important;
+    border-bottom: 2px solid #00d9ff !important;
+}
+
+/* Header icons visibility */
+header[data-testid="stHeader"] button {
+    color: #00d9ff !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+header[data-testid="stHeader"] button:hover {
+    background-color: rgba(0, 217, 255, 0.1) !important;
+    border: none !important;
+}
+
+header[data-testid="stHeader"] svg {
+    fill: #00d9ff !important;
+    stroke: #00d9ff !important;
+}
+
+/* Menu button (hamburger) */
+button[kind="header"] {
+    color: #00d9ff !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+button[kind="header"]:hover {
+    background-color: rgba(0, 217, 255, 0.1) !important;
+}
+
+button[kind="header"] svg {
+    fill: #00d9ff !important;
+}
+
+/* Hide deploy button */
+.stDeployButton {
+    display: none;
+}
+
+/* Toolbar styling */
+.stToolbar {
+    background-color: #0a0e27 !important;
+}
+
+/* Main background and layout */
+.stApp {
+    background: linear-gradient(135deg, #0a0e27 0%, #16213e 50%, #1a1a2e 100%);
+}
+
+/* Main content area */
+.main .block-container {
+    padding-top: 0 !important;
+    padding-bottom: 2rem;
+    max-width: 900px;
+}
+
+/* Remove default spacing */
+.main > div:first-child {
+    padding-top: 0 !important;
+}
+
+div[data-testid="stVerticalBlock"] > div:first-child {
+    padding-top: 0 !important;
+}
+
+/* Title styling */
+h1 {
+    color: #00d9ff !important;
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+    font-weight: 700;
+    text-align: center;
+    text-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+    letter-spacing: 3px;
+    padding: 0.5rem 0 0.3rem 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0.5rem !important;
+    border-bottom: 2px solid #00d9ff;
+}
+
+/* Subheader styling */
+h2, h3 {
+    color: #00ff88 !important;
+    font-family: 'Segoe UI', sans-serif;
+    font-weight: 600;
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.2);
+}
+
+/* Text areas and inputs */
+.stTextArea textarea {
+    background-color: #1a2332 !important;
+    color: #e8e8e8 !important;
+    border: 2px solid #00d9ff !important;
+    border-radius: 12px !important;
+    font-family: 'Consolas', 'Monaco', monospace !important;
+    font-size: 15px !important;
+    padding: 12px !important;
+    box-shadow: 0 4px 15px rgba(0, 217, 255, 0.2) !important;
+    transition: all 0.3s ease !important;
+}
+
+.stTextArea textarea::placeholder {
+    color: #6b7c99 !important;
+    opacity: 1 !important;
+    font-style: italic !important;
+}
+
+.stTextArea textarea:focus {
+    border-color: #00ff88 !important;
+    box-shadow: 0 4px 20px rgba(0, 255, 136, 0.4) !important;
+}
+
+/* Select box styling */
+.stSelectbox > div > div {
+    background-color: #1a2332 !important;
+    border: 2px solid #00d9ff !important;
+    border-radius: 8px !important;
+    color: #e8e8e8 !important;
+}
+
+.stSelectbox option {
+    background-color: #16213e !important;
+    color: #e8e8e8 !important;
+}
+
+/* Selectbox dropdown menu (popover) styling - avoids white popup */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+div[data-baseweb="popover"] > div > div {
+    background-color: #16213e !important;
+    border-radius: 10px !important;
+}
+
+div[data-baseweb="menu"],
+div[data-baseweb="menu"] > ul {
+    background-color: #16213e !important;
+}
+
+ul[role="listbox"],
+ul[role="listbox"] > div,
+div[role="listbox"],
+div[role="listbox"] > div {
+    background-color: #16213e !important;
+    border: 1px solid rgba(0, 217, 255, 0.7) !important;
+    border-radius: 10px !important;
+    padding: 6px !important;
+}
+
+/* Force dropdown options to be visible with dark background */
+li[role="option"],
+li[role="option"] > div {
+    background-color: #16213e !important;
+    color: #ffffff !important;
+    border-radius: 0px !important;
+    padding: 8px 12px !important;
+}
+
+li[role="option"]:hover,
+li[role="option"][aria-selected="true"] {
+    background-color: rgba(0, 217, 255, 0.25) !important;
+    color: #00ff88 !important;
+}
+
+li[role="option"] div,
+li[role="option"] span,
+li[role="option"] p,
+li[role="option"] * {
+    color: #ffffff !important;
+    background-color: transparent !important;
+}
+
+li[role="option"]:hover div,
+li[role="option"]:hover span,
+li[role="option"]:hover p,
+li[role="option"]:hover *,
+li[role="option"][aria-selected="true"] div,
+li[role="option"][aria-selected="true"] span,
+li[role="option"][aria-selected="true"] p,
+li[role="option"][aria-selected="true"] * {
+    color: #00ff88 !important;
+}
+
+/* Dropdown arrow styling */
+.stSelectbox svg {
+    fill: #00d9ff !important;
+}
+
+.stSelectbox [data-baseweb="select"] svg {
+    fill: #00d9ff !important;
+}
+
+/* Help icon styling */
+[data-testid="stTooltipIcon"] svg {
+    fill: none !important;
+    stroke: #00d9ff !important;
+    color: #00d9ff !important;
+}
+
+[data-testid="stTooltipIcon"] svg path {
+    fill: #00d9ff !important;
+}
+
+.stTooltipIcon svg {
+    fill: none !important;
+    stroke: #00d9ff !important;
+}
+
+.stTooltipIcon svg path {
+    fill: #00d9ff !important;
+}
+
+/* Button styling */
+.stButton button {
+    background: linear-gradient(135deg, #00d9ff 0%, #0099cc 100%) !important;
+    color: #0a0e27 !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.75rem 2rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 2px !important;
+    box-shadow: 0 4px 15px rgba(0, 217, 255, 0.3) !important;
+    transition: all 0.3s ease !important;
+    width: 100% !important;
+}
+
+.stButton button:hover {
+    background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%) !important;
+    box-shadow: 0 6px 20px rgba(0, 255, 136, 0.4) !important;
+    transform: translateY(-3px) !important;
+}
+
+.stButton button:active {
+    transform: translateY(0px) !important;
+}
+
+/* Expander styling */
+.streamlit-expanderHeader {
+    background: linear-gradient(90deg, #0f1628 0%, #1a2332 100%) !important;
+    color: #00d9ff !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    border: 2px solid #00d9ff !important;
+    border-radius: 10px !important;
+    padding: 12px !important;
+    box-shadow: 0 2px 10px rgba(0, 217, 255, 0.2) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Settings panel (st.container(border=True)) */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: linear-gradient(180deg, #0f1628 0%, #1a2332 100%) !important;
+    border: 2px solid rgba(0, 217, 255, 0.7) !important;
+    border-radius: 12px !important;
+    padding: 14px 16px 12px !important;
+    box-shadow: 0 2px 12px rgba(0, 217, 255, 0.15) !important;
+}
+
+.settings-title {
+    color: #00d9ff !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    margin: 0 0 10px 0 !important;
+}
+
+.streamlit-expanderHeader:hover {
+    background: linear-gradient(90deg, #1a2332 0%, #243447 100%) !important;
+    border-color: #00ff88 !important;
+    box-shadow: 0 3px 15px rgba(0, 255, 136, 0.3) !important;
+    transform: translateY(-1px) !important;
+}
+
+.streamlit-expanderContent {
+    background-color: #0f1628 !important;
+    border: 2px solid #00d9ff !important;
+    border-top: none !important;
+    border-radius: 0 0 10px 10px !important;
+    padding: 1rem !important;
+}
+
+/* Style elements inside expander */
+.streamlit-expanderContent div[data-baseweb="select"] > div {
+    background-color: #1a2332 !important;
+}
+
+.streamlit-expanderContent p {
+    color: #e8e8e8 !important;
+}
+
+/* Table styling */
+.stTable {
+    background-color: #1a2332 !important;
+    border: 2px solid #00d9ff !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    box-shadow: 0 6px 20px rgba(0, 217, 255, 0.3) !important;
+}
+
+table {
+    color: #ffffff !important;
+    font-family: 'Consolas', 'Monaco', monospace !important;
+    font-size: 14px !important;
+    background-color: #1a2332 !important;
+}
+
+table td,
+table th {
+    color: #ffffff !important;
+}
+
+thead tr th {
+    background: linear-gradient(135deg, #0a0e27 0%, #16213e 100%) !important;
+    color: #00ff88 !important;
+    font-weight: 700 !important;
+    padding: 15px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    border-bottom: 2px solid #00d9ff !important;
+}
+
+tbody tr {
+    transition: all 0.2s ease !important;
+    background-color: rgba(26, 35, 50, 0.7) !important;
+}
+
+tbody tr:hover {
+    background-color: rgba(0, 217, 255, 0.15) !important;
+}
+
+tbody tr td {
+    color: #00ff88 !important;
+    font-weight: 500 !important;
+    padding: 12px 15px !important;
+    border-bottom: 1px solid rgba(0, 217, 255, 0.2) !important;
+}
+
+/* Additional table cell specificity */
+.stTable tbody tr td,
+.stTable table td {
+    color: #00ff88 !important;
+}
+
+.stTable thead tr th,
+.stTable table th {
+    color: #00d9ff !important;
+}
+
+/* Spinner styling */
+.stSpinner > div {
+    border-top-color: #00d9ff !important;
+    border-right-color: #00ff88 !important;
+}
+
+.stSpinner > div > div {
+    color: #00d9ff !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    text-shadow: 0 0 8px rgba(0, 217, 255, 0.3) !important;
+}
+
+/* Spinner text */
+.stSpinner + div {
+    color: #00ff88 !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.3) !important;
+    margin-top: 10px !important;
+}
+
+/* Caption and help text */
+.stCaption, small {
+    color: #a8b2d1 !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    font-size: 13px !important;
+}
+
+/* Status indicators */
+.stMarkdown p {
+    color: #e8e8e8 !important;
+    font-family: 'Segoe UI', sans-serif !important;
+}
+
+/* Error messages */
+.stAlert {
+    background-color: rgba(255, 75, 75, 0.1) !important;
+    color: #ff6b6b !important;
+    border: 2px solid #ff6b6b !important;
+    border-radius: 10px !important;
+    padding: 1rem !important;
+}
+
+/* Label text */
+label {
+    color: #00d9ff !important;
+    font-family: 'Segoe UI', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+}
+
+/* Divider */
+hr {
+    border-color: rgba(0, 217, 255, 0.3) !important;
+    margin: 1.5rem 0 !important;
+}
+
+/* Answer section */
+.element-container {
+    margin-bottom: 0.8rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0a0e27;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #00d9ff 0%, #00ff88 100%);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #00ff88 0%, #00d9ff 100%);
+}
+
+/* Logo styling */
+.logo-container {
+    position: fixed;
+    top: 8px;
+    left: 15px;
+    z-index: 999999;
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.logo-container img {
+    height: 32px;
+    width: auto;
+    display: block;
+}

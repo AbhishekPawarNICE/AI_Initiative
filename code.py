@@ -8,7 +8,11 @@ from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
 import requests
 import base64
+import plotly.graph_objects as go
+import plotly.express as px
 from pathlib import Path
+import tempfile
+import os
 
 
 # ---- Load and encode logo ----
@@ -29,8 +33,51 @@ def check_ollama_status():
         return False
 
 
+# ---- Test remote server connection ----
+def test_remote_connection(ip_address, username, password):
+    """Test SSH connection to remote server"""
+    try:
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip_address, username=username, password=password, timeout=5)
+        ssh.close()
+        return True, "Connection successful"
+    except ImportError:
+        return False, "paramiko library not installed. Run: pip install paramiko"
+    except Exception as e:
+        return False, f"Connection failed: {str(e)}"
+
+
+# ---- Fetch remote file via SFTP ----
+def fetch_remote_file(ip_address, username, password, remote_path):
+    """Download file from remote server via SFTP to temp location"""
+    try:
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ip_address, username=username, password=password, timeout=10)
+        
+        sftp = ssh.open_sftp()
+        
+        # Create temp file to store downloaded content
+        temp_dir = tempfile.gettempdir()
+        local_filename = os.path.basename(remote_path)
+        local_path = os.path.join(temp_dir, f"remote_{local_filename}")
+        
+        sftp.get(remote_path, local_path)
+        sftp.close()
+        ssh.close()
+        
+        return True, local_path
+    except ImportError:
+        return False, "paramiko library not installed. Run: pip install paramiko"
+    except Exception as e:
+        return False, f"File fetch failed: {str(e)}"
+
+
 # ---- Core: ask the LLM, let it call MCP tools, return final text ----
-async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b"):
+async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b", remote_config=None):
     # 1) Start your MCP server via STDIO (runs server.py with same interpreter)
     server_params = StdioServerParameters(
         command=sys.executable,
@@ -67,7 +114,30 @@ async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b"):
 
             # 3) Detect if question mentions file paths and auto-prepare tool call
             import re as regex_module
-            file_path_match = regex_module.search(r'[A-Za-z]:\\[^\s]+\.log|logfile\.log', question)
+            # Support both Windows paths and Linux paths for remote servers
+            file_path_match = regex_module.search(r'[A-Za-z]:\\[^\s]+\.log|/[^\s]+\.log|[\w_-]+\.log', question)
+            
+            # If remote connection is enabled and file path detected, fetch the file
+            actual_file_path = None
+            if file_path_match and remote_config and remote_config.get("enabled") and remote_config.get("connected"):
+                remote_path = file_path_match.group(0)
+                success, result = fetch_remote_file(
+                    remote_config["ip"],
+                    remote_config["username"],
+                    remote_config["password"],
+                    remote_path
+                )
+                if success:
+                    actual_file_path = result  # Local temp path
+                    print(f"[DEBUG] Fetched remote file from {remote_path} to {actual_file_path}")
+                else:
+                    return f"Error fetching remote file: {result}"
+            elif file_path_match:
+                actual_file_path = file_path_match.group(0)
+            
+            # Determine which tool to use based on context
+            is_apache = any(keyword in question.lower() for keyword in ['apache', 'access', 'web server', 'http'])
+            tool_to_use = "analyze_apache_log" if is_apache else "analyze_report_log"
             
             # Enhanced system prompt to force tool usage
             system_prompt = (
@@ -82,8 +152,8 @@ async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b"):
             
             # If file path detected, make the prompt more explicit
             user_content = question
-            if file_path_match:
-                user_content = f"Use the analyze_report_log tool to analyze: {file_path_match.group(0)}"
+            if actual_file_path:
+                user_content = f"Use the analyze_report_log tool to analyze: {actual_file_path}"
             
             response = ollama.chat(
                 model=model,
@@ -103,12 +173,12 @@ async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b"):
             tool_calls = getattr(message, "tool_calls", None) or message.get("tool_calls")
             
             # FALLBACK: If model didn't call tool but file path detected, force tool call
-            if not tool_calls and file_path_match:
+            if not tool_calls and actual_file_path:
                 # DEBUG: Log that we're using fallback
-                print(f"[DEBUG] Model didn't call tool. Using fallback to call analyze_report_log with: {file_path_match.group(0)}")
+                print(f"[DEBUG] Model didn't call tool. Using fallback to call {tool_to_use} with: {actual_file_path}")
                 
-                # Manually construct tool call
-                tool_result = await session.call_tool("analyze_report_log", {"log_file_path": file_path_match.group(0)})
+                # Manually construct tool call with the appropriate tool
+                tool_result = await session.call_tool(tool_to_use, {"log_file_path": actual_file_path})
                 
                 # Extract result
                 content = getattr(tool_result, "content", None)
@@ -185,6 +255,97 @@ async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b"):
             return message.content if hasattr(message, "content") else message["content"]
 
 
+def render_apache_analysis(apache_data):
+    """Render Apache log analysis with charts and metrics"""
+    try:
+        data = json.loads(apache_data)
+        
+        if "error" in data:
+            st.error(f"❌ {data['error']}")
+            return
+        
+        # Summary metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Requests", f"{data['summary']['total_requests']:,}")
+        with col2:
+            st.metric("Avg Response", f"{data['summary']['avg_response_time_ms']:.0f} ms")
+        with col3:
+            st.metric("P95 Response", f"{data['summary']['p95_response_time_ms']:,} ms")
+        with col4:
+            error_rate = data['summary']['error_rate_percent']
+            st.metric("Error Rate", f"{error_rate:.2f}%", delta=f"{'🔴' if error_rate > 5 else '🟢'}")
+        
+        st.divider()
+        
+        # Charts row
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.subheader("📊 Status Code Distribution")
+            status_data = data['status_codes']
+            fig_status = go.Figure(data=[go.Pie(
+                labels=['2xx Success', '4xx Client Error', '5xx Server Error'],
+                values=[status_data['success_2xx'], status_data['client_error_4xx'], status_data['server_error_5xx']],
+                marker=dict(colors=['#00ff88', '#ffaa00', '#ff4444']),
+                hole=0.4
+            )])
+            fig_status.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e8e8e8', size=12),
+                showlegend=True,
+                height=300
+            )
+            st.plotly_chart(fig_status, use_container_width=True)
+        
+        with chart_col2:
+            st.subheader("⏱️ Response Time Distribution")
+            rt_dist = data['response_time_dist']
+            fig_rt = go.Figure(data=[go.Bar(
+                x=list(rt_dist.keys()),
+                y=list(rt_dist.values()),
+                marker=dict(color='#00d9ff'),
+                text=list(rt_dist.values()),
+                textposition='auto'
+            )])
+            fig_rt.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e8e8e8'),
+                xaxis=dict(title='Response Time', gridcolor='rgba(255,255,255,0.1)'),
+                yaxis=dict(title='Count', gridcolor='rgba(255,255,255,0.1)'),
+                height=300
+            )
+            st.plotly_chart(fig_rt, use_container_width=True)
+        
+        st.divider()
+        
+        # Tables
+        table_col1, table_col2 = st.columns(2)
+        
+        with table_col1:
+            st.subheader("🔝 Top 10 Endpoints")
+            import pandas as pd
+            endpoints_df = pd.DataFrame(data['top_endpoints'])
+            if not endpoints_df.empty:
+                endpoints_df.index = range(1, len(endpoints_df) + 1)
+                st.dataframe(endpoints_df, use_container_width=True)
+        
+        with table_col2:
+            st.subheader("👥 Top 5 Client IPs")
+            ips_df = pd.DataFrame(data['top_ips'])
+            if not ips_df.empty:
+                ips_df.index = range(1, len(ips_df) + 1)
+                st.dataframe(ips_df, use_container_width=True)
+        
+    except json.JSONDecodeError:
+        st.error("Failed to parse Apache log analysis results")
+    except Exception as e:
+        st.error(f"Error rendering Apache analysis: {str(e)}")
+
+
 # ---- Streamlit UI ----
 st.set_page_config(page_title="MCP ↔ Ollama ↔ Streamlit", page_icon="🧰", layout="centered")
 
@@ -239,8 +400,148 @@ with _settings_panel:
     else:
         st.markdown("❌ **Ollama Status:** Not running. Please start Ollama.")
         st.caption("Start Ollama from your terminal or application launcher.")
+    
+    st.markdown("---")
+    st.markdown("**Remote Server Connection**")
+    
+    # Initialize session state for connection
+    if "remote_connected" not in st.session_state:
+        st.session_state["remote_connected"] = False
+    if "remote_ip" not in st.session_state:
+        st.session_state["remote_ip"] = ""
+    if "remote_username" not in st.session_state:
+        st.session_state["remote_username"] = ""
+    if "remote_password" not in st.session_state:
+        st.session_state["remote_password"] = ""
+    
+    use_remote = st.checkbox("Enable Remote Log Access", help="Connect to remote server to access log files")
+    
+    if use_remote:
+        col1, col2 = st.columns(2)
+        with col1:
+            remote_ip = st.text_input("Server IP Address", value=st.session_state.get("remote_ip", ""), placeholder="192.168.1.100")
+            remote_username = st.text_input("Username", value=st.session_state.get("remote_username", ""), placeholder="admin")
+        with col2:
+            remote_password = st.text_input("Password", type="password", placeholder="••••••••")
+            test_conn_btn = st.button("Test Connection", use_container_width=True)
+        
+        if test_conn_btn and remote_ip and remote_username and remote_password:
+            with st.spinner("Testing connection..."):
+                success, message = test_remote_connection(remote_ip, remote_username, remote_password)
+                if success:
+                    st.session_state["remote_connected"] = True
+                    st.session_state["remote_ip"] = remote_ip
+                    st.session_state["remote_username"] = remote_username
+                    st.session_state["remote_password"] = remote_password
+                    st.success(message)
+                else:
+                    st.session_state["remote_connected"] = False
+                    st.error(message)
+        
+        # Connection status indicator
+        if st.session_state.get("remote_connected", False):
+            st.markdown(f"✅ **Remote Status:** Connected to {st.session_state['remote_ip']}")
+        else:
+            st.markdown("❌ **Remote Status:** Not connected")
+    else:
+        st.session_state["remote_connected"] = False
 
-prompt = st.text_area("Message", placeholder="How can I help you today?", value="", height=120, key="user_prompt")
+# Create tabs for different analysis types
+tab1, tab2 = st.tabs(["📄 PSR Report Analysis", "🌐 Apache Log Analysis"])
+
+with tab1:
+    st.markdown("### Analyze Jasper Report Logs")
+    prompt = st.text_area("Message", placeholder="Find report details from logfile.log or /var/log/report.log (remote)", value="", height=120, key="report_prompt")
+    
+    run_btn = st.button("Analyze Report", use_container_width=True, type="primary", key="report_btn")
+    
+    if run_btn and prompt.strip():
+        with st.spinner("Analyzing report log..."):
+            try:
+                # Prepare remote config if enabled
+                remote_config = None
+                if st.session_state.get("remote_connected", False):
+                    remote_config = {
+                        "enabled": True,
+                        "connected": True,
+                        "ip": st.session_state["remote_ip"],
+                        "username": st.session_state["remote_username"],
+                        "password": st.session_state["remote_password"]
+                    }
+                
+                answer = asyncio.run(ask_with_mcp_tools(prompt.strip(), model=actual_model.strip(), remote_config=remote_config))
+                st.session_state["report_answer"] = answer
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.session_state["report_answer"] = None
+    
+    # Display report results
+    if "report_answer" in st.session_state and st.session_state["report_answer"]:
+        st.subheader("Answer")
+        answer = st.session_state["report_answer"]
+        
+        # Try to extract tabular data from report responses
+        if "Report Name:" in answer and "Date Range Start:" in answer:
+            import re
+            report_data = {}
+            patterns = {
+                "Report Name": r"Report Name:\s*(.+?)(?=\n|File Type:|$)",
+                "File Type": r"File Type:\s*(.+?)(?=\n|Schedule Type:|$)",
+                "Schedule Type": r"Schedule Type:\s*(.+?)(?=\n|Time Initiated:|$)",
+                "Time Initiated": r"Time Initiated:\s*(.+?)(?=\n|Date Range Start:|$)",
+                "Date Range Start": r"Date Range Start:\s*(.+?)(?=\n|Date Range End:|$)",
+                "Date Range End": r"Date Range End:\s*(.+?)(?=\n|Number of Days:|$)",
+                "Number of Days": r"Number of Days:\s*(.+?)(?=\n|Log Line:|$)",
+                "Log Line": r"Log Line:\s*(.+?)(?=\n|$)"
+            }
+            
+            for key, pattern in patterns.items():
+                match = re.search(pattern, answer)
+                if match:
+                    value = match.group(1).strip()
+                    value = re.sub(r'\s*\([^)]+\)', '', value)
+                    report_data[key] = value
+            
+            if report_data:
+                import pandas as pd
+                df = pd.DataFrame([report_data]).T
+                df.columns = ["Value"]
+                st.table(df)
+            else:
+                st.write(answer)
+        else:
+            st.write(answer)
+
+with tab2:
+    st.markdown("### Analyze Apache Access Logs")
+    apache_prompt = st.text_area("Message", placeholder="Analyze apache_access.log or /var/log/apache2/access.log (remote)", value="", height=120, key="apache_prompt")
+    
+    apache_btn = st.button("Analyze Apache Log", use_container_width=True, type="primary", key="apache_btn")
+    
+    if apache_btn and apache_prompt.strip():
+        with st.spinner("Analyzing Apache log..."):
+            try:
+                # Prepare remote config if enabled
+                remote_config = None
+                if st.session_state.get("remote_connected", False):
+                    remote_config = {
+                        "enabled": True,
+                        "connected": True,
+                        "ip": st.session_state["remote_ip"],
+                        "username": st.session_state["remote_username"],
+                        "password": st.session_state["remote_password"]
+                    }
+                
+                answer = asyncio.run(ask_with_mcp_tools(apache_prompt.strip(), model=actual_model.strip(), remote_config=remote_config))
+                st.session_state["apache_answer"] = answer
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.session_state["apache_answer"] = None
+    
+    # Display Apache results with visualizations
+    if "apache_answer" in st.session_state and st.session_state["apache_answer"]:
+        st.subheader("Apache Log Analysis")
+        render_apache_analysis(st.session_state["apache_answer"])
 
 # Add Ctrl+Enter functionality
 st.markdown("""
@@ -253,8 +554,7 @@ document.addEventListener('DOMContentLoaded', function() {
             textarea.addEventListener('keydown', function(e) {
                 if (e.ctrlKey && e.key === 'Enter') {
                     e.preventDefault();
-                    const button = window.parent.document.querySelector('button[kind="primary"]') || 
-                                   Array.from(window.parent.document.querySelectorAll('button')).find(btn => btn.innerText.includes('Ask'));
+                    const button = window.parent.document.querySelector('button[kind="primary"]');
                     if (button) {
                         button.click();
                     }
@@ -262,73 +562,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     };
-    
-    // Initial check
     checkAndAddListener();
-    
-    // Keep checking in case textarea is recreated
     setInterval(checkAndAddListener, 500);
 });
 </script>
 """, unsafe_allow_html=True)
-
-run_btn = st.button("Ask", use_container_width=True, type="primary")
-
-if run_btn and prompt.strip():
-    with st.spinner("Thinking (may start the MCP server)…"):
-        try:
-            answer = asyncio.run(ask_with_mcp_tools(prompt.strip(), model=actual_model.strip()))
-            st.session_state["answer"] = answer
-            st.session_state["last_prompt"] = prompt.strip()
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.session_state["answer"] = None
-
-if "answer" in st.session_state and st.session_state["answer"]:
-    st.subheader("Answer")
-    
-    # Check if the answer contains report data in structured format
-    answer = st.session_state["answer"]
-    
-    # Try to extract tabular data from report responses
-    if "Report Name:" in answer and "Date Range Start:" in answer:
-        # Parse the report data into a table
-        import re
-        
-        # Extract key-value pairs
-        report_data = {}
-        patterns = {
-            "Report Name": r"Report Name:\s*(.+?)(?=\n|File Type:|$)",
-            "File Type": r"File Type:\s*(.+?)(?=\n|Schedule Type:|$)",
-            "Schedule Type": r"Schedule Type:\s*(.+?)(?=\n|Time Initiated:|$)",
-            "Time Initiated": r"Time Initiated:\s*(.+?)(?=\n|Date Range Start:|$)",
-            "Date Range Start": r"Date Range Start:\s*(.+?)(?=\n|Date Range End:|$)",
-            "Date Range End": r"Date Range End:\s*(.+?)(?=\n|Number of Days:|$)",
-            "Number of Days": r"Number of Days:\s*(.+?)(?=\n|Log Line:|$)",
-            "Log Line": r"Log Line:\s*(.+?)(?=\n|$)"
-        }
-        
-        for key, pattern in patterns.items():
-            match = re.search(pattern, answer)
-            if match:
-                value = match.group(1).strip()
-                # Remove parenthetical explanations
-                value = re.sub(r'\s*\([^)]+\)', '', value)
-                report_data[key] = value
-        
-        # Display as table if we found data
-        if report_data:
-            import pandas as pd
-            df = pd.DataFrame([report_data]).T
-            df.columns = ["Value"]
-            st.table(df)
-            
-            # Show any additional text below
-            additional_text = re.split(r'Log Line:\s*[^\n]+', answer, 1)
-            if len(additional_text) > 1 and additional_text[1].strip():
-                st.write("---")
-                st.write(additional_text[1].strip())
-        else:
-            st.write(answer)
-    else:
-        st.write(answer)

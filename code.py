@@ -323,10 +323,31 @@ async def ask_with_mcp_tools(question: str, model: str = "qwen3:4b", remote_conf
             return message.content if hasattr(message, "content") else message["content"]
 
 
+# Helper function for async time
+async def get_current_time_async():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def render_apache_analysis(apache_data):
     """Render Apache log analysis with charts and metrics"""
     try:
-        data = json.loads(apache_data)
+        # Try to extract JSON from the response (handle markdown code blocks)
+        import re
+        
+        # First, try to find JSON in markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', apache_data, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find JSON object directly
+            json_match = re.search(r'(\{.*\})', apache_data, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_str = apache_data
+        
+        data = json.loads(json_str)
         
         if "error" in data:
             st.error(f"❌ {data['error']}")
@@ -408,10 +429,14 @@ def render_apache_analysis(apache_data):
                 ips_df.index = range(1, len(ips_df) + 1)
                 st.dataframe(ips_df, use_container_width=True)
         
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         st.error("Failed to parse Apache log analysis results")
+        st.text("Raw response:")
+        st.code(apache_data[:1000] if len(apache_data) > 1000 else apache_data, language="text")
     except Exception as e:
         st.error(f"Error rendering Apache analysis: {str(e)}")
+        st.text("Debug info:")
+        st.code(str(apache_data)[:500], language="text")
 
 
 # ---- Streamlit UI ----
@@ -581,7 +606,7 @@ with tab1:
             st.write(answer)
 
 with tab2:
-    st.markdown("### Live Apache Log Monitor")
+    st.markdown("### Apache Log Analysis")
     
     # Initialize session state for live monitoring
     if "monitoring_active" not in st.session_state:
@@ -591,56 +616,130 @@ with tab2:
     if "last_update" not in st.session_state:
         st.session_state["last_update"] = None
     
-    # Live monitoring controls
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Toggle between local and remote
+    analysis_mode = st.radio("Analysis Mode", ["Local File", "Remote Live Monitor"], horizontal=True)
     
-    with col1:
-        log_dir = st.text_input(
-            "Apache Logs Directory", 
-            value="/niceapps/apacheconf/apache/logs/",
-            placeholder="/var/log/apache2/",
-            help="Remote directory containing Apache log files"
+    if analysis_mode == "Local File":
+        # Local file analysis
+        local_log_path = st.text_input(
+            "Apache Log File Path",
+            placeholder="C:\\logs\\access.log or /var/log/apache2/access.log",
+            help="Full path to local Apache access log file"
         )
+        
+        max_lines = st.number_input("Max lines to analyze", min_value=100, max_value=10000, value=1000, step=100)
+        
+        analyze_btn = st.button("📊 Analyze Log", use_container_width=True, type="primary")
+        
+        if analyze_btn and local_log_path:
+            with st.spinner("Analyzing Apache log..."):
+                try:
+                    answer = asyncio.run(ask_with_mcp_tools(
+                        f"Analyze apache log {local_log_path} with max {max_lines} lines", 
+                        model=actual_model.strip(),
+                        remote_config=None
+                    ))
+                    st.session_state["apache_live_data"] = answer
+                    st.session_state["last_update"] = asyncio.run(get_current_time_async())
+                    st.success(f"✅ Analysis complete")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        # Display results
+        if st.session_state.get("apache_live_data"):
+            st.markdown("---")
+            render_apache_analysis(st.session_state["apache_live_data"])
     
-    with col2:
-        tail_lines = st.number_input("Lines to tail", min_value=50, max_value=5000, value=500, step=50)
-    
-    with col3:
-        refresh_interval = st.number_input("Refresh (sec)", min_value=5, max_value=300, value=30, step=5)
-    
-    # Control buttons
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
-    
-    with btn_col1:
-        start_monitor = st.button("🔴 Start Live Monitor", use_container_width=True, type="primary", disabled=not st.session_state.get("remote_connected", False))
-    
-    with btn_col2:
-        stop_monitor = st.button("⏹️ Stop Monitor", use_container_width=True, disabled=not st.session_state.get("monitoring_active", False))
-    
-    with btn_col3:
-        manual_refresh = st.button("🔄 Refresh Now", use_container_width=True, disabled=not st.session_state.get("monitoring_active", False))
-    
-    # Connection warning
-    if not st.session_state.get("remote_connected", False):
-        st.warning("⚠️ Remote connection required. Please connect to a server in Settings first.")
-    
-    # Start monitoring
-    if start_monitor and st.session_state.get("remote_connected", False):
-        with st.spinner("Fetching latest Apache log..."):
-            try:
-                # Get latest file from directory
-                success, result = get_latest_remote_file(
-                    st.session_state["remote_ip"],
-                    st.session_state["remote_username"],
-                    st.session_state["remote_password"],
-                    log_dir
-                )
-                
-                if success:
-                    latest_file = result
-                    st.session_state["latest_log_file"] = latest_file
+    else:
+        # Remote live monitoring
+        st.markdown("#### Remote Live Monitor")
+        
+        # Live monitoring controls
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            log_dir = st.text_input(
+                "Apache Logs Directory", 
+                value="/niceapps/apacheconf/apache/logs/",
+                placeholder="/var/log/apache2/",
+                help="Remote directory containing Apache log files"
+            )
+        
+        with col2:
+            tail_lines = st.number_input("Lines to tail", min_value=50, max_value=5000, value=500, step=50)
+        
+        with col3:
+            refresh_interval = st.number_input("Refresh (sec)", min_value=5, max_value=300, value=30, step=5)
+        
+        # Control buttons
+        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        
+        with btn_col1:
+            start_monitor = st.button("🔴 Start Live Monitor", use_container_width=True, type="primary", disabled=not st.session_state.get("remote_connected", False))
+        
+        with btn_col2:
+            stop_monitor = st.button("⏹️ Stop Monitor", use_container_width=True, disabled=not st.session_state.get("monitoring_active", False))
+        
+        with btn_col3:
+            manual_refresh = st.button("🔄 Refresh Now", use_container_width=True, disabled=not st.session_state.get("monitoring_active", False))
+        
+        # Connection warning
+        if not st.session_state.get("remote_connected", False):
+            st.warning("⚠️ Remote connection required for live monitoring. Please connect to a server in Settings first.")
+        
+        # Start monitoring
+        if start_monitor and st.session_state.get("remote_connected", False):
+            with st.spinner("Fetching latest Apache log..."):
+                try:
+                    # Get latest file from directory
+                    success, result = get_latest_remote_file(
+                        st.session_state["remote_ip"],
+                        st.session_state["remote_username"],
+                        st.session_state["remote_password"],
+                        log_dir
+                    )
                     
-                    # Tail the file
+                    if success:
+                        latest_file = result
+                        st.session_state["latest_log_file"] = latest_file
+                        
+                        # Tail the file
+                        success, local_path = tail_remote_file(
+                            st.session_state["remote_ip"],
+                            st.session_state["remote_username"],
+                            st.session_state["remote_password"],
+                            latest_file,
+                            tail_lines
+                        )
+                        
+                        if success:
+                            # Analyze the tailed log
+                            answer = asyncio.run(ask_with_mcp_tools(
+                                f"Analyze apache log {local_path}", 
+                                model=actual_model.strip(),
+                                remote_config=None  # Already downloaded
+                            ))
+                            st.session_state["apache_live_data"] = answer
+                            st.session_state["monitoring_active"] = True
+                            st.session_state["last_update"] = asyncio.run(get_current_time_async())
+                            st.success(f"✅ Monitoring: {latest_file}")
+                        else:
+                            st.error(local_path)
+                    else:
+                        st.error(result)
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        # Stop monitoring
+        if stop_monitor:
+            st.session_state["monitoring_active"] = False
+            st.info("Monitoring stopped")
+        
+        # Manual refresh
+        if manual_refresh and st.session_state.get("monitoring_active", False):
+            with st.spinner("Refreshing data..."):
+                try:
+                    latest_file = st.session_state.get("latest_log_file")
                     success, local_path = tail_remote_file(
                         st.session_state["remote_ip"],
                         st.session_state["remote_username"],
@@ -650,122 +749,81 @@ with tab2:
                     )
                     
                     if success:
-                        # Analyze the tailed log
                         answer = asyncio.run(ask_with_mcp_tools(
                             f"Analyze apache log {local_path}", 
                             model=actual_model.strip(),
-                            remote_config=None  # Already downloaded
+                            remote_config=None
                         ))
                         st.session_state["apache_live_data"] = answer
-                        st.session_state["monitoring_active"] = True
                         st.session_state["last_update"] = asyncio.run(get_current_time_async())
-                        st.success(f"✅ Monitoring: {latest_file}")
+                        st.success(f"✅ Refreshed at {st.session_state['last_update']}")
                     else:
                         st.error(local_path)
-                else:
-                    st.error(result)
-            except Exception as e:
-                st.error(f"Error: {e}")
-    
-    # Stop monitoring
-    if stop_monitor:
-        st.session_state["monitoring_active"] = False
-        st.info("Monitoring stopped")
-    
-    # Manual refresh
-    if manual_refresh and st.session_state.get("monitoring_active", False):
-        with st.spinner("Refreshing data..."):
-            try:
-                latest_file = st.session_state.get("latest_log_file")
-                success, local_path = tail_remote_file(
-                    st.session_state["remote_ip"],
-                    st.session_state["remote_username"],
-                    st.session_state["remote_password"],
-                    latest_file,
-                    tail_lines
-                )
-                
-                if success:
-                    answer = asyncio.run(ask_with_mcp_tools(
-                        f"Analyze apache log {local_path}", 
-                        model=actual_model.strip(),
-                        remote_config=None
-                    ))
-                    st.session_state["apache_live_data"] = answer
-                    st.session_state["last_update"] = asyncio.run(get_current_time_async())
-                    st.success(f"✅ Refreshed at {st.session_state['last_update']}")
-                else:
-                    st.error(local_path)
-            except Exception as e:
-                st.error(f"Error: {e}")
-    
-    # Auto-refresh logic
-    if st.session_state.get("monitoring_active", False):
-        from datetime import datetime, timedelta
+                except Exception as e:
+                    st.error(f"Error: {e}")
         
-        # Display status
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #0a0e27 0%, #16213e 100%); padding: 15px; border-radius: 8px; border: 1px solid #00d9ff; margin-bottom: 20px;'>
-            <div style='display: flex; justify-content: space-between; align-items: center;'>
-                <div>
-                    <span style='color: #00ff88; font-size: 18px;'>🟢 LIVE MONITORING</span><br>
-                    <span style='color: #b8c5d6; font-size: 12px;'>File: {st.session_state.get('latest_log_file', 'N/A')}</span>
-                </div>
-                <div style='text-align: right;'>
-                    <span style='color: #b8c5d6; font-size: 12px;'>Last Update</span><br>
-                    <span style='color: #00d9ff; font-size: 14px;'>{st.session_state.get('last_update', 'N/A')}</span>
+        # Auto-refresh logic
+        if st.session_state.get("monitoring_active", False):
+            from datetime import datetime, timedelta
+            
+            # Display status
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #0a0e27 0%, #16213e 100%); padding: 15px; border-radius: 8px; border: 1px solid #00d9ff; margin-bottom: 20px;'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <div>
+                        <span style='color: #00ff88; font-size: 18px;'>🟢 LIVE MONITORING</span><br>
+                        <span style='color: #b8c5d6; font-size: 12px;'>File: {st.session_state.get('latest_log_file', 'N/A')}</span>
+                    </div>
+                    <div style='text-align: right;'>
+                        <span style='color: #b8c5d6; font-size: 12px;'>Last Update</span><br>
+                        <span style='color: #00d9ff; font-size: 14px;'>{st.session_state.get('last_update', 'N/A')}</span>
+                    </div>
                 </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            
+            # Display current data
+            if st.session_state.get("apache_live_data"):
+                render_apache_analysis(st.session_state["apache_live_data"])
+            
+            # Check if it's time to refresh
+            if "next_refresh_time" not in st.session_state:
+                st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
+            
+            # Auto-refresh if interval has passed
+            if datetime.now() >= st.session_state["next_refresh_time"]:
+                try:
+                    latest_file = st.session_state.get("latest_log_file")
+                    success, local_path = tail_remote_file(
+                        st.session_state["remote_ip"],
+                        st.session_state["remote_username"],
+                        st.session_state["remote_password"],
+                        latest_file,
+                        tail_lines
+                    )
+                    
+                    if success:
+                        answer = asyncio.run(ask_with_mcp_tools(
+                            f"Analyze apache log {local_path}", 
+                            model=actual_model.strip(),
+                            remote_config=None
+                        ))
+                        st.session_state["apache_live_data"] = answer
+                        st.session_state["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
+                except Exception as e:
+                    st.error(f"Auto-refresh error: {e}")
+            
+            # Use st.empty() and rerun for continuous monitoring
+            import time
+            time.sleep(1)  # Small sleep to prevent overwhelming the system
+            st.rerun()
         
-        # Display current data
-        if st.session_state.get("apache_live_data"):
+        # Display results if monitoring stopped but data exists
+        elif st.session_state.get("apache_live_data") and not st.session_state.get("monitoring_active", False):
+            st.info(f"📊 Showing last captured data from {st.session_state.get('last_update', 'unknown time')}")
             render_apache_analysis(st.session_state["apache_live_data"])
-        
-        # Check if it's time to refresh
-        if "next_refresh_time" not in st.session_state:
-            st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
-        
-        # Auto-refresh if interval has passed
-        if datetime.now() >= st.session_state["next_refresh_time"]:
-            try:
-                latest_file = st.session_state.get("latest_log_file")
-                success, local_path = tail_remote_file(
-                    st.session_state["remote_ip"],
-                    st.session_state["remote_username"],
-                    st.session_state["remote_password"],
-                    latest_file,
-                    tail_lines
-                )
-                
-                if success:
-                    answer = asyncio.run(ask_with_mcp_tools(
-                        f"Analyze apache log {local_path}", 
-                        model=actual_model.strip(),
-                        remote_config=None
-                    ))
-                    st.session_state["apache_live_data"] = answer
-                    st.session_state["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    st.session_state["next_refresh_time"] = datetime.now() + timedelta(seconds=refresh_interval)
-            except Exception as e:
-                st.error(f"Auto-refresh error: {e}")
-        
-        # Use st.empty() and rerun for continuous monitoring
-        import time
-        time.sleep(1)  # Small sleep to prevent overwhelming the system
-        st.rerun()
-    
-    # Display results if monitoring stopped but data exists
-    elif st.session_state.get("apache_live_data") and not st.session_state.get("monitoring_active", False):
-        st.info(f"📊 Showing last captured data from {st.session_state.get('last_update', 'unknown time')}")
-        render_apache_analysis(st.session_state["apache_live_data"])
 
-
-# Helper function for async time
-async def get_current_time_async():
-    from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # Add Ctrl+Enter functionality
 st.markdown("""
